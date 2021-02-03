@@ -3,7 +3,13 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Chat;
+use LaravelFCM\Message\OptionsBuilder;
+use LaravelFCM\Message\PayloadDataBuilder;
+use LaravelFCM\Message\PayloadNotificationBuilder;
+use FCM;
 
+use App\User;
 class HomeController extends Controller
 {
     /**
@@ -23,6 +29,53 @@ class HomeController extends Controller
      */
     public function index()
     {
-        return view('home');
+        $chats = Chat::all();
+        
+        return view('home',['chats'=>$chats]);
     }
+
+
+    public function createChat(Request $request)
+{
+    $input = $request->all();
+    $message = $input['message'];
+    $chat = new Chat([
+        'sender_id' => auth()->user()->id,
+        'sender_name' => auth()->user()->name,
+        'message' => $message
+    ]);
+    $this->broadcastMessage(auth()->user()->name,$message);
+    $chat->save();
+    return redirect()->back();
+
+}
+
+
+private function broadcastMessage($senderName, $message)
+{
+    $optionBuilder = new OptionsBuilder();
+    $optionBuilder->setTimeToLive(60 * 20);
+
+    $notificationBuilder = new PayloadNotificationBuilder('New message from : ' . $senderName);
+    $notificationBuilder->setBody($message)
+        ->setSound('default')
+        ->setClickAction('http://localhost:8000/home');
+
+    $dataBuilder = new PayloadDataBuilder();
+    $dataBuilder->addData([
+        'sender_name' => $senderName,
+        'mesage' => $message
+    ]);
+
+    $option = $optionBuilder->build();
+    $notification = $notificationBuilder->build();
+    $data = $dataBuilder->build();
+
+    $tokens = User::all()->pluck('fcm_token')->toArray();
+
+    $downstreamResponse = FCM::sendTo($tokens, $option, $notification, $data);
+
+    return $downstreamResponse->numberSuccess();
+
+}
 }
